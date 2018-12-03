@@ -1,0 +1,260 @@
+---
+title: "Power plant analysis"
+author: "Vidya"
+date: "1 December 2018"
+output: html_document
+---
+
+### This data is downloaded from : http://datasets.wri.org/dataset/globalpowerplantdatabase.
+
+###-----------------------------------------------------------------------------------------
+
+### *It is an attempt to analyse power plants around the world , to understand the demand and supply of power by country . Also its an attempt to see how many countries are having a hybrid model of power generation where in there is a mix of renewable and non-renewable resources.*
+
+###The data consists of 28K odd records of power plant distribution in 164 countries along wih their latitude and longitude location. 
+###Each plant's capacity is in MW , type of fuel used in the generation is also mentioned .There are four fuel type columns but only fuel1 values are provided for all the rows.
+###There are 12 different fuel types ranging from non-renewable types such as coal , gas as well as renewables such as hydro , wind, solar etc .  
+###Commissioning year and year_of_capacity data are not completely provided(50%). Hence we may not be able to do analysis based on those dates. 
+
+###-----------------------------------------------------------------------------------------
+
+## Descriptive Analysis :
+
+### **Questions to be  asked:**
+####1. Which fuel type has the largest power generation capacity ?
+####2. Country wise largest power generation capacity and by fuel type ? 
+####3. Country wise percentage of power generation by renewables to non renewables ? Which ####are the leading and lagging countries in the use of renewables ? 
+####4. How do the number of plants vary for every fuel type ?
+####5. How do the estimation of power generation vary with the actual capacity ? 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE , warning = FALSE)
+```
+
+
+```{r}
+
+library(tidyverse)
+library(leaflet)
+
+power_plant <- read.csv("global_power_plant_database.csv", stringsAsFactors = FALSE , header = TRUE)
+
+power_plant$country <- as.factor(power_plant$country)
+
+power_plant$fuel1 <- as.factor(power_plant$fuel1)
+power_plant$fuel2 <- as.factor(power_plant$fuel2)
+power_plant$fuel3 <- as.factor(power_plant$fuel3)
+power_plant$fuel4 <- as.factor(power_plant$fuel4)
+
+power_plant[is.na(power_plant)] <- 0
+
+power_plant <- power_plant %>% mutate(energy_flag = ifelse(fuel1 %in% c('Coal', "Gas","Oil","Nuclear"), "non-renewable", "renewable"))
+
+
+```
+
+### Fuel types of the power plants 
+```{r}
+
+power_plant %>% group_by(fuel1) %>% summarise(total_capacity = sum(capacity_mw)) %>% mutate(fuel1 = reorder(fuel1 , -(total_capacity)), flag = ifelse(fuel1 %in% c('Biomass', "Geothermal","Hydro","Solar","Wind","Waste Wave and Tidal"), "renewable", "non-renewable")) %>% ggplot(aes(fuel1 , total_capacity)) + geom_bar(stat = "identity", aes(fill = flag)) + coord_flip() +
+   labs(title = "Total power generation capacity by fuel type", x= "fuel type" , y = "MW")
+ 
+
+```
+
+### Renewable fuel types have less than 50% capacity compared to  the non-renewable fuels world wide . 
+### Coal and Gas have the highest power generation capacity , followed by hydro . 
+
+###-----------------------------------------------------------------------------------------
+
+```{r}
+
+ power_plant %>% group_by(country) %>% summarise(total_capacity = sum(capacity_mw)) %>% mutate(country = reorder(country , -total_capacity)) %>% top_n(10) %>% ggplot(aes(country , total_capacity)) + geom_bar(stat = "identity", fill = "light blue") +
+    labs(title = "Cumulative power generation capacity for top 10 countries ")
+
+
+```
+
+### Its observed that US and China have a great lead in terms of total capacity of power generation, which is more than 3 times the capacity for India and Japan. 
+
+###-----------------------------------------------------------------------------------------
+
+```{r}
+
+  country_fuel1 <- power_plant %>% group_by(country_long, fuel1) %>% summarise(total_capacity = sum(capacity_mw))
+  
+  country_fuel1[order(-country_fuel1$total_capacity),] %>% top_n(1) %>% head(30) %>% ggplot(aes(reorder(country_long,-total_capacity) , total_capacity)) + geom_bar(stat = "identity", aes(fill = fuel1), position = "dodge") + coord_flip() +
+    labs(title = "Country wise max  power generation capacity by fuel type ", x= 'country', y = 'maximum capacity MW')
+  
+```
+
+### The plot shows that China and USA have the maximum power generation capaicity with coal , followed by India. 
+### China has great margin , more than 2 times of USA . Brazil , Canada have maximum power generation with hydro . 
+### Russia and Japan have gas power plants generating maximum power and Saudi Arabia has maximum power generation with oil .
+### France has maximum power generation by nuclear power plants.
+
+###-----------------------------------------------------------------------------------------
+### Visualizing the maximum power generation capaicity for each fuel type and the respective country generating it.
+
+```{r}
+fuel1_country <- power_plant %>% group_by(fuel1, country) %>% summarise(total_capacity = sum(capacity_mw))
+  
+ fuel1_country[order(-fuel1_country$total_capacity),] %>% top_n(1) %>% filter(fuel1 != "") %>% 
+     ggplot(aes(reorder(country,-total_capacity) , total_capacity )) + geom_col(aes(fill = fuel1))  +
+    labs(title = "Max Power Generation capacity for each fuel type ", y = "total capacity MW", x= "") 
+
+
+```
+
+### Maximum power generation with coal and hydro is done in China . Maximum power generation with Gas , Oil , Wind , Geothermal , Solar is done in USA . Biomass based power generation is done at the maximum in Brazil . Great Britain , Korea and Denmark have Cogeneration ,Wave and Tidal and Other as the fuel type , however the  power generation capaicity is minisculed by the other fuel types.
+
+###-----------------------------------------------------------------------------------------
+
+```{r}
+
+power_plant  %>% filter(fuel1 != "") %>% group_by(fuel1) %>% count(fuel1) %>% ggplot(aes(reorder(fuel1,-n) , n)) +
+ geom_bar(stat = "identity", aes(fill = fuel1)) + coord_flip() + labs(title = "Count of power plants worldwide", x= 'fuel' , y = "count")  
+
+```
+
+### Shows that renewable energy such as hydro , solar and wind have the highest number of installations. 
+### This is due to dependency of the installations on the geographical locations and the smaller size of the plant as compared to the coal , oil and gas power plants.
+### This highlights the dependency of world power generation on rainfall as we have many hydro power generating plants.  
+
+###-----------------------------------------------------------------------------------
+
+### We need more and more renewable energy used in power generation . 
+### Lets look at the percentage of renewable being used by the top 20 countries . 
+
+```{r}
+
+country_percent <- power_plant %>% group_by(energy_flag,country ) %>% summarise(total_power = sum(capacity_mw)) 
+
+country_percent_wide <- reshape2::dcast(country_percent, country ~ energy_flag, value.var = "total_power", fill = 0)
+
+country_percent_wide <- country_percent_wide %>% mutate(percent = ifelse(`non-renewable` > 0, renewable/`non-renewable`, 1))
+
+totalpower_country <- power_plant %>% group_by(country) %>% summarise(total_power = sum(capacity_mw) )
+
+totalpower_country <- left_join(totalpower_country , country_percent_wide , by = "country")
+
+totalpower_country[order(-totalpower_country$total_power),] %>% head(20) %>% ggplot(aes(reorder(country, -total_power) , total_power, label = round(percent,1)))+ geom_bar(stat = "identity", aes(fill = percent)) +labs(x= "", title = "Top 20 countries with max power generation and their % of renewables") + geom_text(check_overlap = TRUE, vjust = -0.5)
+
+```
+
+### Countries like Brazil , Canada, Great Britain are leaders in adoption of renewables in their power generation . 
+### The goal would be to increase the percentage of renewables by all the countries, especally the countries that generate and consume more power. 
+
+###-----------------------------------------------------------------------------------------
+
+### How do the estimation of power vary with the acual power generation capacity ??
+
+```{r}
+
+power_plant %>% ggplot(aes(estimated_generation_gwh , capacity_mw)) + geom_point(aes(color = energy_flag)) + geom_smooth() + labs(x= "estimated power gwh ", y = "power generation capacity mw")
+
+```
+
+### Actual power generation capacity seems to be in line with the estimated power. 
+
+###-----------------------------------------------------------------------------------------
+
+### Visualizing the locations of the power plants that have maximum capacity for the individual fuels.
+
+### Coal - China 
+
+```{r}
+
+power_plant_coal <- power_plant[order(-power_plant$capacity_mw),] %>% filter(country == 'CHN' & fuel1 == "Coal") %>% head(20) %>% select(latitude , longitude , capacity_mw)
+
+colnames(power_plant_coal) <- c('lat','lng', 'popup')
+
+power_plant_coal %>% leaflet() %>% addTiles() %>% addMarkers()
+
+```
+
+###-----------------------------------------------------------------------------------------
+
+### Hydro power  - China 
+
+```{r}
+power_plant_hydro <- power_plant[order(-power_plant$capacity_mw),] %>% filter(country == 'CHN' & fuel1 == "Hydro") %>% head(20) %>% select(latitude , longitude , capacity_mw)
+
+colnames(power_plant_hydro) <- c('lat','lng', 'popup')
+
+power_plant_hydro %>% leaflet() %>% addTiles() %>% addMarkers()
+
+```
+
+###-----------------------------------------------------------------------------------------
+
+### Oil based power  - USA 
+
+```{r}
+
+power_plant_oil <- power_plant[order(-power_plant$capacity_mw),] %>% filter(country == 'USA' & fuel1 == "Oil") %>% head(20) %>% select(latitude , longitude , capacity_mw)
+
+colnames(power_plant_oil) <- c('lat','lng', 'popup')
+
+power_plant_oil %>% leaflet() %>% addTiles() %>% addMarkers()
+
+```
+
+###-----------------------------------------------------------------------------------------
+
+### Gas  based power  - USA 
+
+```{r}
+
+power_plant_gas <- power_plant[order(-power_plant$capacity_mw),] %>% filter(country == 'USA' & fuel1 == "Gas") %>% head(20) %>% select(latitude , longitude , capacity_mw)
+
+colnames(power_plant_gas) <- c('lat','lng', 'popup')
+
+power_plant_gas %>% leaflet() %>% addTiles() %>% addMarkers()
+
+```
+
+###-----------------------------------------------------------------------------------------
+
+### Wind  based power  - USA 
+
+```{r}
+power_plant_wind <- power_plant[order(-power_plant$capacity_mw),] %>% filter(country == 'USA' & fuel1 == "Wind") %>% head(20) %>% select(latitude , longitude , capacity_mw)
+
+colnames(power_plant_wind) <- c('lat','lng', 'popup')
+
+power_plant_wind %>% leaflet() %>% addTiles() %>% addMarkers()
+
+```
+
+###-----------------------------------------------------------------------------------------
+
+### Solar  based power  - USA 
+
+```{r}
+power_plant_solar <- power_plant[order(-power_plant$capacity_mw),] %>% filter(country == 'USA' & fuel1 == "Solar") %>% head(20) %>% select(latitude , longitude , capacity_mw)
+
+colnames(power_plant_solar) <- c('lat','lng', 'popup')
+
+power_plant_solar %>% leaflet() %>% addTiles() %>% addMarkers()
+
+```
+
+###----------------------------------------------------------------------------------------
+
+### Biomass based power - Brazil 
+
+```{r}
+power_plant_biomass <- power_plant[order(-power_plant$capacity_mw),] %>% filter(country == 'BRA' & fuel1 == "Biomass") %>% head(20) %>% select(latitude , longitude , capacity_mw)
+
+colnames(power_plant_biomass) <- c('lat','lng', 'popup')
+
+power_plant_biomass %>% leaflet() %>% addTiles() %>% addMarkers()
+
+```
+
+### **Summary**
+
+### **It is seen that USA and China have a major lead in power generation over rest of the countries. The major fuel used is coal , gas , hydro and oil** 
+### **Hydro is the renewable energy fuel type which is used in power generation in many countries and with China leading in it . This highlights the major dependeny on water cycle for power generation world wide.** 
+### **The percentage of renewables used in power generation yet remains less with maximum of 30% in China and 20% in USA . There needs to be a major focus to increase this percentage so as to have less dependency on the depleting fuels**
